@@ -96,6 +96,31 @@ async function run() {
       res.send(result);
     });
 
+    // DELETE /tasks/:id
+    app.delete("/tasks/:id", async (req, res) => {
+      const id = req.params.id;
+      const { userEmail, isCompleted, refundAmount } = req.body;
+
+      const deleteResult = await taskCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!isCompleted) {
+        // Refund if task is not completed
+        await usersCollection.updateOne(
+          { email: userEmail },
+          { $inc: { coins: refundAmount } }
+        );
+      }
+
+      res.send({ deleteResult, refund: isCompleted ? 0 : refundAmount });
+    });
+
+    app.get("/tasks/user/:email", async (req, res) => {
+      const result = await taskCollection.find().toArray();
+      res.send(result);
+    });
+
     app.post("/tasks", async (req, res) => {
       try {
         const taskData = req.body;
