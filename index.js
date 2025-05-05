@@ -75,6 +75,13 @@ async function run() {
         .send({ success: true });
     });
 
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await usersCollection.findOne({ email });
+      if (!user) return res.send(null);
+      res.send(user);
+    });
+
     app.get("/users", async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
@@ -83,8 +90,8 @@ async function run() {
     app.post("/users", async (req, res) => {
       const { name, email, photoURL, role } = req.body;
 
-      if (!name || !email || !role) {
-        return res.status(400).send({ message: "Missing user fields" });
+      if (!name || !email) {
+        return res.status(400).send({ message: "Missing name or email" });
       }
 
       try {
@@ -93,17 +100,15 @@ async function run() {
           return res.status(409).send({ message: "User already exists" });
         }
 
-        const result = await usersCollection.insertOne({
-          name,
-          email,
-          photoURL,
-          role,
-        });
+        const newUser = { name, email };
+        if (photoURL) newUser.photoURL = photoURL;
+        if (role) newUser.role = role;
 
+        const result = await usersCollection.insertOne(newUser);
         res.status(201).send({ insertedId: result.insertedId });
       } catch (err) {
         console.error(err);
-        res.status(500).send({ message: "Failed to save user info" });
+        res.status(500).send({ message: "Failed to save user" });
       }
     });
 
