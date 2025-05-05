@@ -81,15 +81,30 @@ async function run() {
     });
     // create all users here
     app.post("/users", async (req, res) => {
-      const user = req.body;
-      const query = { email: user.email };
-      const existingUser = await usersCollection.findOne(query);
+      const { name, email, photoURL, role } = req.body;
 
-      if (existingUser) {
-        return res.send({ message: "already user is logging" });
+      if (!name || !email || !role) {
+        return res.status(400).send({ message: "Missing user fields" });
       }
-      const result = await usersCollection.insertOne(user);
-      res.send(result);
+
+      try {
+        const existingUser = await usersCollection.findOne({ email });
+        if (existingUser) {
+          return res.status(409).send({ message: "User already exists" });
+        }
+
+        const result = await usersCollection.insertOne({
+          name,
+          email,
+          photoURL,
+          role,
+        });
+
+        res.status(201).send({ insertedId: result.insertedId });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Failed to save user info" });
+      }
     });
 
     // Sample route
