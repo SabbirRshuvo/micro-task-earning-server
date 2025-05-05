@@ -47,6 +47,7 @@ async function run() {
 
     const database = client.db("micro_tasks");
     const usersCollection = database.collection("users");
+    const taskCollection = database.collection("tasks");
 
     // JWT route
     app.post("/jwt", async (req, res) => {
@@ -54,7 +55,7 @@ async function run() {
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "7d",
       });
-      res.send({ token }); // send token in response instead of cookie
+      res.send({ token });
     });
 
     // Logout route (optional if you're using localStorage)
@@ -77,10 +78,53 @@ async function run() {
         email: user.email,
         photoURL: user.photoURL,
         role: user.role || "user",
-        coin: user.coin || 0,
+        coins: user.coins || 0,
         createdAt: new Date(),
       };
       const result = await usersCollection.insertOne(newUser);
+      res.send(result);
+    });
+
+    app.patch("/users/add-coins", async (req, res) => {
+      const { email, coins } = req.body;
+      const filter = { email };
+
+      const updateDoc = {
+        $inc: { coins: coins },
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    app.post("/tasks", async (req, res) => {
+      try {
+        const taskData = req.body;
+        const result = await taskCollection.insertOne(taskData);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "failed to add task", error });
+      }
+    });
+
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await usersCollection.findOne({ email });
+      res.send(user);
+    });
+
+    app.patch("/users/reduce-coins", async (req, res) => {
+      const { email, coins } = req.body;
+      const user = await usersCollection.findOne({ email });
+
+      if (!user || user.coins < coins) {
+        return res.status(400).send({ message: "not enough coins" });
+      }
+      const result = await usersCollection.updateOne(
+        { email },
+        {
+          $inc: { coins: -coins },
+        }
+      );
       res.send(result);
     });
 
@@ -89,6 +133,22 @@ async function run() {
       const user = await usersCollection.findOne({ email });
       res.send(user);
     });
+
+    app.patch("/users/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const filter = { email };
+      const updateDoc = {
+        $set: { role: "admin" },
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    app.get("/users", async (req, res) => {
+      const users = await usersCollection.find().toArray();
+      res.send(users);
+    });
+
     // Sample route
     app.get("/", (req, res) => {
       res.send("Server is running");
