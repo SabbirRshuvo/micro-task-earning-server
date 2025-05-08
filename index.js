@@ -3,10 +3,12 @@ const express = require("express");
 const app = express();
 const cors = require("cors");
 const port = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const morgan = require("morgan");
+const { default: Stripe } = require("stripe");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 app.use(
   cors({
@@ -48,6 +50,7 @@ async function run() {
     const database = client.db("micro_tasks");
     const usersCollection = database.collection("users");
     const taskCollection = database.collection("tasks");
+    const paymentsCollection = database.collection("payments");
 
     // JWT route
     app.post("/jwt", async (req, res) => {
@@ -58,7 +61,6 @@ async function run() {
       res.send({ token });
     });
 
-    // Logout route (optional if you're using localStorage)
     app.get("/logout", (req, res) => {
       res.send({
         success: true,
@@ -66,38 +68,66 @@ async function run() {
       });
     });
 
-    app.post("/users", async (req, res) => {
-      const user = req.body;
-      console.log(user);
-      const existing = await usersCollection.findOne({ email: user.email });
-      if (existing) {
-        return res.send({ message: "User already exists" });
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
+
+    app.post("/payments", async (req, res) => {
+      const { email, price, coins, transactionId } = req.body;
+
+      const saveResult = await paymentsCollection.insertOne(req.body);
+
+      const updateUser = await usersCollection.updateOne(
+        { email },
+        { $inc: { coins: coins } }
+      );
+
+      res.send({ success: true });
+    });
+
+    app.patch("/tasks/:id", async (req, res) => {
+      const taskId = req.params.id;
+
+      if (!ObjectId.isValid(taskId)) {
+        return res.status(400).send({ message: "Invalid Task ID" });
       }
 
-      const newUser = {
-        name: user.name,
-        email: user.email,
-        photoURL: user.photoURL,
-        role: user.role || "worker",
-        coins: user.coins || 0,
-        createdAt: new Date(),
-      };
-      const result = await usersCollection.insertOne(newUser);
-      res.send(result);
+      try {
+        const updatedFields = {
+          task_title: req.body.task_title,
+          task_detail: req.body.task_detail,
+          submission_info: req.body.submission_info,
+        };
+
+        const result = await taskCollection.updateOne(
+          { _id: new ObjectId(taskId) },
+          { $set: updatedFields }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: "Task not found" });
+        }
+
+        res.send({ message: "Task updated successfully" });
+      } catch (error) {
+        console.error("Update error:", error);
+        res
+          .status(500)
+          .send({ message: "Failed to update task", error: error.message });
+      }
     });
 
-    app.patch("/users/add-coins", async (req, res) => {
-      const { email, coins } = req.body;
-      const filter = { email };
-
-      const updateDoc = {
-        $inc: { coins: coins },
-      };
-      const result = await usersCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    });
-
-    // DELETE /tasks/:id
     app.delete("/tasks/:id", async (req, res) => {
       const id = req.params.id;
       const { userEmail, isCompleted, refundAmount } = req.body;
@@ -107,7 +137,6 @@ async function run() {
       });
 
       if (!isCompleted) {
-        // Refund if task is not completed
         await usersCollection.updateOne(
           { email: userEmail },
           { $inc: { coins: refundAmount } }
@@ -132,6 +161,16 @@ async function run() {
       }
     });
 
+    app.patch("/users/add-coins", async (req, res) => {
+      const { email, coins } = req.body;
+      const filter = { email };
+
+      const updateDoc = {
+        $inc: { coins: coins },
+      };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
@@ -154,6 +193,25 @@ async function run() {
       res.send(result);
     });
 
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      console.log(user);
+      const existing = await usersCollection.findOne({ email: user.email });
+      if (existing) {
+        return res.send({ message: "User already exists" });
+      }
+
+      const newUser = {
+        name: user.name,
+        email: user.email,
+        photoURL: user.photoURL,
+        role: user.role || "worker",
+        coins: user.coins || 0,
+        createdAt: new Date(),
+      };
+      const result = await usersCollection.insertOne(newUser);
+      res.send(result);
+    });
     app.get("/profile", verifyJWT, async (req, res) => {
       const email = req.user.email;
 
