@@ -68,6 +68,7 @@ async function run() {
 
     app.post("/users", async (req, res) => {
       const user = req.body;
+      console.log(user);
       const existing = await usersCollection.findOne({ email: user.email });
       if (existing) {
         return res.send({ message: "User already exists" });
@@ -77,7 +78,7 @@ async function run() {
         name: user.name,
         email: user.email,
         photoURL: user.photoURL,
-        role: user.role || "user",
+        role: user.role || "worker",
         coins: user.coins || 0,
         createdAt: new Date(),
       };
@@ -155,8 +156,16 @@ async function run() {
 
     app.get("/profile", verifyJWT, async (req, res) => {
       const email = req.user.email;
-      const user = await usersCollection.findOne({ email });
-      res.send(user);
+
+      try {
+        const user = await usersCollection.findOne({ email });
+        if (!user) {
+          return res.status(404).send({ message: "user not found" });
+        }
+        res.send(user);
+      } catch (error) {
+        res.status(500).send({ message: "server error" });
+      }
     });
 
     app.patch("/users/admin/:email", verifyJWT, async (req, res) => {
