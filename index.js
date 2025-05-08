@@ -68,9 +68,15 @@ async function run() {
       });
     });
 
+    app.get("/payments/:email", async (req, res) => {
+      const email = req.params.email;
+      const payments = await paymentsCollection.find({ email }).toArray();
+      res.send(payments);
+    });
+
     app.post("/create-payment-intent", async (req, res) => {
       const { price } = req.body;
-      const amount = parseInt(price * 100);
+      const amount = price * 100;
 
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amount,
