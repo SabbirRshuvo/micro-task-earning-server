@@ -20,17 +20,22 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(morgan("dev"));
 
-function verifyJWT(req, res, next) {
+const verifyJWT = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).send({ message: "unauthorized" });
+  if (!authHeader) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
   const token = authHeader.split(" ")[1];
 
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if (err) return res.status(403).send({ message: "forbidden" });
+    if (err) {
+      return res.status(403).send({ message: "forbidden access" });
+    }
     req.user = decoded;
     next();
   });
-}
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.nugjc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -49,13 +54,35 @@ async function run() {
 
     const database = client.db("micro_tasks");
     const usersCollection = database.collection("users");
-    const taskCollection = database.collection("tasks");
-    const paymentsCollection = database.collection("payments");
+    const buyerTaskCollection = database.collection("buyer-tasks");
+    const buyerPaymentCollection = database.collection("buyer-payments");
+    const submissionsCollection = database.collection("submissions");
+
+    const verifyBuyer = async (req, res, next) => {
+      const userEmail = req.user?.email;
+
+      if (!userEmail) {
+        return res.status(401).send({ message: "unauthorize user" });
+      }
+      const user = await usersCollection.findOne({ email });
+
+      if (!user || user.role !== "buyer") {
+        return res.status(403).send({ message: "forbidden" });
+      }
+      next();
+    };
 
     // JWT route
     app.post("/jwt", async (req, res) => {
-      const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+      const { email } = req.body;
+
+      const user = await usersCollection.findOne({ email });
+
+      if (!user) {
+        return res.status(401).send({ message: "unauthorize user" });
+      }
+
+      const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "7d",
       });
       res.send({ token });
@@ -64,13 +91,29 @@ async function run() {
     app.get("/logout", (req, res) => {
       res.send({
         success: true,
-        message: "Client should remove token from localStorage",
+        message: "logged out",
       });
+    });
+
+    app.get("/submissions", async (req, res) => {
+      const email = req.query.workerEmail;
+      const result = await submissionsCollection
+        .find({ worker_email: email })
+        .toArray();
+      res.send(result);
+    });
+
+    app.post("/submissions", async (req, res) => {
+      const submission = req.body;
+      submission.status = "pending";
+      submission.current_date = new Date().toLocaleDateString();
+      const result = await submissionsCollection.insertOne(submission);
+      res.send(result);
     });
 
     app.get("/payments/:email", async (req, res) => {
       const email = req.params.email;
-      const payments = await paymentsCollection.find({ email }).toArray();
+      const payments = await buyerPaymentCollection.find({ email }).toArray();
       res.send(payments);
     });
 
@@ -92,7 +135,7 @@ async function run() {
     app.post("/payments", async (req, res) => {
       const { email, price, coins, transactionId } = req.body;
 
-      const saveResult = await paymentsCollection.insertOne(req.body);
+      const saveResult = await buyerPaymentCollection.insertOne(req.body);
 
       const updateUser = await usersCollection.updateOne(
         { email },
@@ -102,6 +145,18 @@ async function run() {
       res.send({ success: true });
     });
 
+    app.get("/tasks/:id", async (req, res) => {
+      const id = req.params.id;
+      const task = await buyerTaskCollection.findOne({ _id: new ObjectId(id) });
+      res.send(task);
+    });
+
+    app.get("/tasks", async (req, res) => {
+      const tasks = await buyerTaskCollection
+        .find({ required_workers: { $gt: 0 } })
+        .toArray();
+      res.send(tasks);
+    });
     app.patch("/tasks/:id", async (req, res) => {
       const taskId = req.params.id;
 
@@ -116,7 +171,7 @@ async function run() {
           submission_info: req.body.submission_info,
         };
 
-        const result = await taskCollection.updateOne(
+        const result = await buyerTaskCollection.updateOne(
           { _id: new ObjectId(taskId) },
           { $set: updatedFields }
         );
@@ -138,7 +193,7 @@ async function run() {
       const id = req.params.id;
       const { userEmail, isCompleted, refundAmount } = req.body;
 
-      const deleteResult = await taskCollection.deleteOne({
+      const deleteResult = await buyerTaskCollection.deleteOne({
         _id: new ObjectId(id),
       });
 
@@ -153,14 +208,14 @@ async function run() {
     });
 
     app.get("/tasks/user/:email", async (req, res) => {
-      const result = await taskCollection.find().toArray();
+      const result = await buyerTaskCollection.find().toArray();
       res.send(result);
     });
 
     app.post("/tasks", async (req, res) => {
       try {
         const taskData = req.body;
-        const result = await taskCollection.insertOne(taskData);
+        const result = await buyerTaskCollection.insertOne(taskData);
         res.send(result);
       } catch (error) {
         res.status(500).send({ message: "failed to add task", error });
@@ -197,7 +252,10 @@ async function run() {
     app.get("/users/coin/:email", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
-      res.send({ coins: user?.coins } || 0);
+      if (!user) {
+        return res.send({ coins: 0 });
+      }
+      res.send({ coins: user.coins || 0 });
     });
 
     app.get("/users/:email", async (req, res) => {
@@ -238,7 +296,7 @@ async function run() {
       }
     });
 
-    app.patch("/users/admin/:email", verifyJWT, async (req, res) => {
+    app.patch("/users/admin/:email", async (req, res) => {
       const email = req.params.email;
       const filter = { email };
       const updateDoc = {
