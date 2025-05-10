@@ -57,6 +57,7 @@ async function run() {
     const buyerTaskCollection = database.collection("buyer-tasks");
     const buyerPaymentCollection = database.collection("buyer-payments");
     const submissionsCollection = database.collection("submissions");
+    const withdrawalsCollection = database.collection("withdrawals");
 
     const verifyBuyer = async (req, res, next) => {
       const userEmail = req.user?.email;
@@ -93,6 +94,114 @@ async function run() {
         success: true,
         message: "logged out",
       });
+    });
+
+    app.get("/stats/:email", async (req, res) => {
+      const email = req.params.email;
+      const tasks = await buyerTaskCollection
+        .find({ buyer_email: email })
+        .toArray();
+      const totalTasks = tasks.length;
+      const pendingWorkersr = tasks.reduce(
+        (sum, task) => sum + task.required_workers,
+        0
+      );
+      const totalPaid = tasks.reduce(
+        (sum, task) => sum + (task.payable_amount || 0),
+        0
+      );
+
+      res.send({ totalTasks, pendingWorkersr, totalPaid });
+    });
+
+    app.get("/submissions/review/:email", async (req, res) => {
+      const email = req.params.email;
+      const tasks = await buyerTaskCollection
+        .find({ buyer_email: email })
+        .toArray();
+      const taskIds = tasks.map((task) => task._id.toString());
+
+      const submissions = await submissionsCollection
+        .find({
+          task_id: { $in: taskIds },
+          status: "pending",
+        })
+        .toArray();
+
+      res.send(submissions);
+    });
+
+    app.get("/users/withdrawals/:email", async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.user.email) {
+        return res.status(403).send({ message: "Access denied" });
+      }
+      const withdrawals = await withdrawalsCollection
+        .find({ worker_email: email })
+        .sort({ withdraw_date: -1 })
+        .toArray();
+      res.send(withdrawals);
+    });
+    app.patch("/submissions/approve/:id", async (req, res) => {
+      const id = req.params.id;
+      const submission = await submissionsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      if (!submission) return res.status(404).send("Not found");
+
+      await submissionsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: "approved" } }
+      );
+
+      // Increase worker's coins
+      await usersCollection.updateOne(
+        { email: submission.worker_email },
+        { $inc: { coins: submission.coin || 0 } }
+      );
+
+      res.send({ message: "Submission approved and coins added" });
+    });
+
+    app.patch("/submissions/reject/:id", async (req, res) => {
+      const id = req.params.id;
+      const submission = await submissionsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      if (!submission) return res.status(404).send("Not found");
+
+      // Update submission status
+      await submissionsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: "rejected" } }
+      );
+
+      // Increase required workers by 1 for that task
+      await buyerTaskCollection.updateOne(
+        { _id: new ObjectId(submission.task_id) },
+        { $inc: { required_workers: 1 } }
+      );
+
+      res.send({ message: "Submission rejected and worker slot restored" });
+    });
+
+    app.post("/users/withdrawals", async (req, res) => {
+      const { worker_email, withdrawal_coin } = req.body;
+
+      const user = await usersCollection.findOne({ email: worker_email });
+      if (!user) return res.status(404).send({ message: "User not found" });
+
+      if (user.coins < withdrawal_coin) {
+        return res.status(400).send({ message: "Not enough coins" });
+      }
+
+      const result = await withdrawalsCollection.insertOne(req.body);
+      await usersCollection.updateOne(
+        { email: worker_email },
+        { $inc: { coins: -withdrawal_coin } }
+      );
+
+      res.send({ success: true, result });
     });
 
     app.get("/submissions", async (req, res) => {
@@ -260,6 +369,9 @@ async function run() {
 
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
+      if (email !== req.user.email) {
+        return res.status(403).send({ message: "Access denied" });
+      }
       const user = await usersCollection.findOne({ email });
       res.send(user);
     });
