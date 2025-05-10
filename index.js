@@ -457,6 +457,25 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/top-workers", async (req, res) => {
+      const topWorkers = await usersCollection
+        .find({ role: "worker" })
+        .sort({ coins: -1 })
+        .limit(6)
+        .toArray();
+      res.send(topWorkers);
+    });
+
+    app.get("/admin/tasks", async (req, res) => {
+      const tasks = await buyerTaskCollection.find().toArray();
+      res.send(tasks);
+    });
+    app.delete("/admin/tasks/:id", async (req, res) => {
+      const taskId = req.params.id;
+      await buyerTaskCollection.deleteOne({ _id: new ObjectId(taskId) });
+      res.send({ success: true });
+    });
+
     app.delete("/admin/users/:id", async (req, res) => {
       const id = req.params.id;
       await usersCollection.deleteOne({ _id: new ObjectId(id) });
