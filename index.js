@@ -433,14 +433,13 @@ async function run() {
       const result = await usersCollection.insertOne(newUser);
       res.send(result);
     });
-    app.get("/profile", verifyJWT, async (req, res) => {
-      const email = req.user.email;
-
+    app.get("/profile", async (req, res) => {
+      const email = req.query.email;
+      if (!email) {
+        return res.status(400).send({ message: "email is required" });
+      }
       try {
         const user = await usersCollection.findOne({ email });
-        if (!user) {
-          return res.status(404).send({ message: "user not found" });
-        }
         res.send(user);
       } catch (error) {
         res.status(500).send({ message: "server error" });
