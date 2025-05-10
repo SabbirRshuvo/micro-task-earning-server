@@ -96,6 +96,45 @@ async function run() {
       });
     });
 
+    app.get("/admin/stats", async (req, res) => {
+      const users = await usersCollection.find().toArray();
+      const withdrawals = await withdrawalsCollection
+        .find({ status: "approved" })
+        .toArray();
+
+      const totalWorkers = users.filter((u) => u.role === "worker").length;
+      const totalBuyers = users.filter((u) => u.role === "buyer").length;
+      const totalCoins = users.reduce((sum, u) => sum + (u.coins || 0), 0);
+      const totalPayments = withdrawals.reduce(
+        (sum, w) => sum + (w.withdrawal_amount || 0),
+        0
+      );
+
+      res.send({ totalWorkers, totalBuyers, totalCoins, totalPayments });
+    });
+    app.get("/admin/withdrawals", async (req, res) => {
+      const pending = await withdrawalsCollection
+        .find({ status: "pending" })
+        .toArray();
+      res.send(pending);
+    });
+
+    app.patch("/admin/withdraw-approve/:id", async (req, res) => {
+      const id = req.params.id;
+      const { email, coins } = req.body;
+
+      // Approve the withdrawal
+      await withdrawalsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status: "approved" } }
+      );
+
+      // Deduct coins from user
+      await usersCollection.updateOne({ email }, { $inc: { coins: -coins } });
+
+      res.send({ success: true });
+    });
+
     app.get("/stats/:email", async (req, res) => {
       const email = req.params.email;
       const tasks = await buyerTaskCollection
@@ -416,6 +455,21 @@ async function run() {
       };
       const result = await usersCollection.updateOne(filter, updateDoc);
       res.send(result);
+    });
+
+    app.delete("/admin/users/:id", async (req, res) => {
+      const id = req.params.id;
+      await usersCollection.deleteOne({ _id: new ObjectId(id) });
+      res.send({ success: true });
+    });
+    app.patch("/admin/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const { role } = req.body;
+      await usersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role } }
+      );
+      res.send({ success: true });
     });
 
     app.get("/users", async (req, res) => {
