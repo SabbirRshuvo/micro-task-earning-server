@@ -20,23 +20,6 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(morgan("dev"));
 
-const verifyJWT = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).send({ message: "unauthorized access" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).send({ message: "forbidden access" });
-    }
-    req.user = decoded;
-    next();
-  });
-};
-
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.nugjc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
 const client = new MongoClient(uri, {
@@ -59,41 +42,82 @@ async function run() {
     const submissionsCollection = database.collection("submissions");
     const withdrawalsCollection = database.collection("withdrawals");
 
-    const verifyBuyer = async (req, res, next) => {
-      const userEmail = req.user?.email;
-
-      if (!userEmail) {
-        return res.status(401).send({ message: "unauthorize user" });
-      }
-      const user = await usersCollection.findOne({ email });
-
-      if (!user || user.role !== "buyer") {
-        return res.status(403).send({ message: "forbidden" });
-      }
-      next();
-    };
-
     // JWT route
-    app.post("/jwt", async (req, res) => {
-      const { email } = req.body;
 
-      const user = await usersCollection.findOne({ email });
+    const verifyToken = (req, res, next) => {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) return res.status(401).send({ message: "unauthorized" });
 
-      if (!user) {
-        return res.status(401).send({ message: "unauthorize user" });
-      }
+      const token = authHeader.split(" ")[1];
 
-      const token = jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) return res.status(403).send({ message: "forbidden" });
+        req.decoded = decoded;
+        next();
+      });
+    };
+    const generateToken = (email) =>
+      jwt.sign({ email }, process.env.ACCESS_TOKEN_SECRET, {
         expiresIn: "7d",
       });
+    app.post("/jwt", async (req, res) => {
+      const { email } = req.body;
+      const token = generateToken(email);
       res.send({ token });
     });
 
     app.get("/logout", (req, res) => {
-      res.send({
-        success: true,
-        message: "logged out",
+      res.send({ message: "Logged out" });
+    });
+
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const existingUser = await usersCollection.findOne({
+        email: user?.email,
       });
+
+      if (existingUser) {
+        return res.status(409).send({ message: "User already exists" });
+      }
+
+      const newUser = {
+        name: user.name,
+        email: user.email,
+        password: user.password || null,
+        photoURL: user.photoURL || "",
+        role: user.role || "worker",
+        coins: user.coins || 0,
+        createdAt: new Date(),
+      };
+
+      await usersCollection.insertOne(newUser);
+      res.send({ message: "User created" });
+    });
+
+    app.post("/login", async (req, res) => {
+      const { email, password } = req.body;
+      const user = await usersCollection.findOne({ email });
+
+      if (!user || user.password !== password) {
+        return res.status(401).send({ message: "Invalid email or password" });
+      }
+
+      const token = generateToken(email);
+      res.send({ token });
+    });
+
+    app.get("/profile", verifyToken, async (req, res) => {
+      const email = req.query.email;
+
+      if (req.decoded.email !== email) {
+        return res.status(403).send({ message: "forbidden" });
+      }
+
+      const user = await usersCollection.findOne(
+        { email },
+        { projection: { password: 0 } }
+      );
+      res.send(user);
     });
 
     app.get("/admin/stats", async (req, res) => {
@@ -523,37 +547,6 @@ async function run() {
       }
       const user = await usersCollection.findOne({ email });
       res.send(user);
-    });
-    app.post("/users", async (req, res) => {
-      const user = req.body;
-      console.log(user);
-      const existing = await usersCollection.findOne({ email: user.email });
-      if (existing) {
-        return res.send({ message: "User already exists" });
-      }
-
-      const newUser = {
-        name: user.name,
-        email: user.email,
-        photoURL: user.photoURL,
-        role: user.role || "worker",
-        coins: user.coins || 0,
-        createdAt: new Date(),
-      };
-      const result = await usersCollection.insertOne(newUser);
-      res.send(result);
-    });
-    app.get("/profile", async (req, res) => {
-      const email = req.query.email;
-      if (!email) {
-        return res.status(400).send({ message: "email is required" });
-      }
-      try {
-        const user = await usersCollection.findOne({ email });
-        res.send(user);
-      } catch (error) {
-        res.status(500).send({ message: "server error" });
-      }
     });
 
     app.patch("/users/admin/:email", async (req, res) => {
