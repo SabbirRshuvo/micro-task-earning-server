@@ -332,7 +332,16 @@ async function run() {
         // Increase worker's coin balance
         await usersCollection.updateOne(
           { email: submission.worker_email },
-          { $inc: { coin: submission.payable_amount } }
+          { $inc: { coins: submission.payable_amount } }
+        );
+        // decrease buyer coins balance
+        await usersCollection.updateOne(
+          {
+            email: submission.buyer_email,
+          },
+          {
+            $inc: { coins: -submission.payable_amount },
+          }
         );
 
         // Update submission status
