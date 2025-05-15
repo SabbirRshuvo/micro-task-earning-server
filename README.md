@@ -1,15 +1,19 @@
 # Micro Task Earning (Server Side)
+
 This is the **server-side code** for the Micro Task Earning platform — a dynamic task-based earning system where Buyers can post micro-tasks and Workers can complete them to earn coins. Admin can manage users and monitor activity.
 
-###  Live Site:
- (https://micro-task-earning-56ea3.web.app/login)
-###  Admin Access:
-- **Email:** `sabbirhshuvo11@gmail.com`
-- **Password:** `sasasa12`
+### Live Site:
+
+(https://micro-task-earning-56ea3.web.app/login)
+
+### Admin Access:
+
+- **Email:** sabbirkhan@gmail.com
+- **Password:** sabbir12
 
 ---
 
-##  Server Side Tech Stack
+## Server Side Tech Stack
 
 - **Express.js**
 - **MongoDB**
@@ -22,8 +26,7 @@ This is the **server-side code** for the Micro Task Earning platform — a dynam
 
 ---
 
-##  API Features (Backend)
-
+## API Features (Backend)
 
 1. **JWT-based authentication** just for sign in and logout.
 2. **Role-based access control** for Admin, Buyer, and Worker.
