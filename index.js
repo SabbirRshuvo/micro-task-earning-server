@@ -50,8 +50,6 @@ async function run() {
     const submissionsCollection = database.collection("submissions");
     const withdrawalsCollection = database.collection("withdrawals");
 
-    // JWT route
-
     const verifyToken = (req, res, next) => {
       const authHeader = req.headers.authorization;
       if (!authHeader) {
@@ -92,49 +90,6 @@ async function run() {
     app.get("/logout", (req, res) => {
       res.send({ message: "Logged out" });
     });
-
-    const verifyWorker = async (req, res, next) => {
-      const email = req.decoded?.email;
-      if (!email) {
-        return res
-          .status(401)
-          .send({ message: "Unauthorized: No email found" });
-      }
-      try {
-        const user = await usersCollection.findOne({ email: email });
-
-        if (!user) {
-          return res.status(404).send({ message: "User not found" });
-        }
-        if (user.role !== "worker") {
-          return res.status(403).send({ message: "Forbidden: Workers only" });
-        }
-        next();
-      } catch (error) {
-        res.status(500).send({ message: "Internal server error", error });
-      }
-    };
-
-    const verifyBuyer = async (req, res, next) => {
-      const email = req.decoded?.email;
-      if (!email) {
-        return res
-          .status(401)
-          .send({ message: "Unauthorized: No email found" });
-      }
-      try {
-        const user = await usersCollection.findOne({ email: email });
-        if (!user) {
-          return res.status(404).send({ message: "User not found" });
-        }
-        if (user.role !== "buyer") {
-          return res.status(403).send({ message: "Forbidden: Workers only" });
-        }
-        next();
-      } catch (error) {
-        res.status(500).send({ message: "Internal server error", error });
-      }
-    };
 
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded?.email;
@@ -300,22 +255,17 @@ async function run() {
         res.status(500).send({ message: "Internal server error" });
       }
     });
-    app.patch(
-      "/users/update-coins/:email",
-      verifyToken,
-      verifyWorker,
-      async (req, res) => {
-        const email = req.params.email;
-        const { coins } = req.body;
+    app.patch("/users/update-coins/:email", async (req, res) => {
+      const email = req.params.email;
+      const { coins } = req.body;
 
-        const result = await usersCollection.updateOne(
-          { email },
-          { $set: { coins } }
-        );
+      const result = await usersCollection.updateOne(
+        { email },
+        { $set: { coins } }
+      );
 
-        res.send(result);
-      }
-    );
+      res.send(result);
+    });
     app.get("/submissions/review/:email", async (req, res) => {
       const email = req.params.email;
       const tasks = await buyerTaskCollection
