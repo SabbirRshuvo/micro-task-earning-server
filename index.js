@@ -385,6 +385,11 @@ async function run() {
         }
       );
 
+      await buyerTaskCollection.updateOne(
+        { _id: new ObjectId(submission.task_id) },
+        { $inc: { required_workers: -1 } }
+      );
+
       // Update submission status
       await submissionsCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -403,10 +408,23 @@ async function run() {
       if (!submission)
         return res.status(404).send({ message: "Submission not found" });
 
+      const task = await buyerTaskCollection.findOne({
+        _id: new ObjectId(submission.task_id),
+      });
+
+      if (!task) {
+        return res.status(404).send({ message: "Task not found" });
+      }
+
       // Increase task's required_workers
       await buyerTaskCollection.updateOne(
         { _id: new ObjectId(submission.task_id) },
         { $inc: { required_workers: 1 } }
+      );
+
+      await usersCollection.updateOne(
+        { email: task.buyer_email },
+        { $inc: { coins: task.payable_amount } }
       );
 
       // Update submission status
@@ -503,8 +521,6 @@ async function run() {
     app.post("/submissions", async (req, res) => {
       try {
         const submission = req.body;
-
-        // Basic validation (optional)
         if (
           !submission.task_id ||
           !submission.worker_email ||
