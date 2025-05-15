@@ -375,15 +375,6 @@ async function run() {
         { email: submission.worker_email },
         { $inc: { coins: submission.payable_amount } }
       );
-      // decrease buyer coins balance
-      await usersCollection.updateOne(
-        {
-          email: submission.buyer_email,
-        },
-        {
-          $inc: { coins: -submission.payable_amount },
-        }
-      );
 
       await buyerTaskCollection.updateOne(
         { _id: new ObjectId(submission.task_id) },
@@ -726,20 +717,15 @@ async function run() {
       await usersCollection.deleteOne({ _id: new ObjectId(id) });
       res.send({ success: true });
     });
-    app.patch(
-      "/admin/users/:id",
-      verifyToken,
-      verifyAdmin,
-      async (req, res) => {
-        const id = req.params.id;
-        const { role } = req.body;
-        await usersCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: { role } }
-        );
-        res.send({ success: true });
-      }
-    );
+    app.patch("/admin/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const { role } = req.body;
+      await usersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role } }
+      );
+      res.send({ success: true });
+    });
 
     app.get("/users", async (req, res) => {
       const users = await usersCollection.find().toArray();
