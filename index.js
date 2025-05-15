@@ -54,7 +54,6 @@ async function run() {
 
     const verifyToken = (req, res, next) => {
       const authHeader = req.headers.authorization;
-      console.log(authHeader);
       if (!authHeader) {
         return res
           .status(401)
@@ -103,7 +102,7 @@ async function run() {
       }
       try {
         const user = await usersCollection.findOne({ email: email });
-        console.log("users", user);
+
         if (!user) {
           return res.status(404).send({ message: "User not found" });
         }
@@ -438,6 +437,17 @@ async function run() {
             .send({ error: "Minimum 200 coins required for withdrawal" });
         }
 
+        const user = await usersCollection.findOne({ email: worker_email });
+        if (!user) {
+          return res.status(404).send({ error: "User not found" });
+        }
+
+        if (user.coins < withdrawal_coin) {
+          return res
+            .status(400)
+            .send({ error: "Not enough coins to withdraw" });
+        }
+
         const withdrawalData = {
           worker_email,
           worker_name,
@@ -450,9 +460,15 @@ async function run() {
         };
 
         const result = await withdrawalsCollection.insertOne(withdrawalData);
+
+        const updateResult = await usersCollection.updateOne(
+          { email: worker_email },
+          { $inc: { coins: -withdrawal_coin } }
+        );
+
         res.status(201).send({
           success: true,
-          message: "Withdrawal request submitted",
+          message: "Withdrawal request submitted and coins deducted",
           data: result,
         });
       } catch (error) {
